@@ -570,6 +570,9 @@ export class ExtensionRunner {
 	private wrapUIPromptContext(ui: ExtensionUIContext): ExtensionUIContext {
 		return {
 			...ui,
+			get transcript() {
+				return ui.transcript;
+			},
 			select: (title, options, opts) => this.withUIPrompt("select", title, () => ui.select(title, options, opts)),
 			confirm: (title, message, opts) => this.withUIPrompt("confirm", title, () => ui.confirm(title, message, opts)),
 			input: (title, placeholder, opts) =>

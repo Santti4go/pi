@@ -11,6 +11,7 @@ Start with `ctx.ui` methods from an [extension](extensions.md#interact-with-the-
 | Select, confirm, input, or multi-line editor | `ctx.ui.select()`, `confirm()`, `input()`, or `editor()` |
 | Non-blocking feedback | `ctx.ui.notify()` or `setStatus()` |
 | Persistent content near the editor | `ctx.ui.setWidget()` |
+| Scroll the fullscreen chat to a persisted message | `ctx.ui.transcript` |
 | Replace the header, footer, or editor | The corresponding `ctx.ui` component factory |
 | Temporary interactive screen or overlay | `ctx.ui.custom()` |
 | Custom rendering for a tool or session entry | An extension renderer |
@@ -60,6 +61,27 @@ Fullscreen mode routes normalized mouse events to components. A handler can mark
 Unhandled wheel events scroll the nearest `ScrollView`. Unhandled primary-button drags remain available for transcript selection. OSC 8 links take precedence over enclosing click regions.
 
 Regular mode leaves mouse input to the terminal because the terminal owns scrollback. Design every interaction with a keyboard path even when fullscreen mouse input is available.
+
+## Navigate the main transcript
+
+In fullscreen mode, `ctx.ui.transcript` exposes visual-only navigation:
+
+```typescript
+const transcript = ctx.ui.transcript;
+if (!transcript) return; // Regular, RPC, JSON, and print modes do not expose this capability.
+const entries = transcript.getEntries();
+if (entries[0]) transcript.scrollToEntry(entries[0].id);
+const unsubscribe = transcript.onViewportChange((viewport) => {
+  // viewport.entries, activeEntryId, scrollTop, viewportHeight,
+  // contentWidth, contentHeight, followingEnd
+});
+```
+
+IDs are session-entry IDs, not message indexes. The list contains only persisted user/assistant messages with visible rendered content in the active transcript, including assistant messages that also call tools. Empty messages, tool results, hidden entries, and entries omitted by compaction are not listed. Streaming messages become available after persistence and rendering. `getActiveEntryId()` returns the entry starting at or immediately before the viewport top, or undefined in the header.
+
+`scrollToEntry()` returns false if the entry is not rendered, the viewport has not been laid out yet, or fullscreen mode is inactive. Successful calls remeasure at the effective chat width, clamp near the document end, and disable automatic following. Use the normal jump-to-bottom action to follow output again. This never changes the session leaf, branch, or model context; use tree navigation separately if you intend to change conversation history.
+
+Notifications run after frames, including wheel/keyboard navigation, resize, and content-height changes. Handlers should be synchronous and lightweight. Unsubscribe on disposal. A throwing listener is removed and reported without preventing other listeners from running. Reload/session replacement clears subscriptions. Re-check the capability after switching display modes.
 
 ## Use custom screens and overlays
 
