@@ -201,6 +201,7 @@ import {
 	theme,
 } from "./theme/theme.ts";
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
+import { TranscriptDocument, TranscriptNavigation } from "./transcript-navigation.ts";
 import { createInteractiveTui, createInteractiveTuiReference } from "./tui-renderer.ts";
 
 export { createInteractiveTui, createInteractiveTuiReference } from "./tui-renderer.ts";
@@ -456,6 +457,8 @@ export class InteractiveMode {
 	private loadedResourcesContainer: Container;
 	private chatContainer: Container;
 	private documentContainer: Container;
+	private transcriptDocument: TranscriptDocument | undefined;
+	private transcriptNavigation: TranscriptNavigation | undefined;
 	private transcriptScrollView: TuiLayouts.ScrollView | undefined;
 	private fullscreenLayoutRoot: Component | undefined;
 	private pendingMessagesContainer: Container;
@@ -633,7 +636,18 @@ export class InteractiveMode {
 		this.headerContainer = new Container();
 		this.loadedResourcesContainer = new Container();
 		this.chatContainer = new Container();
-		this.documentContainer = new Container();
+		this.transcriptDocument = new TranscriptDocument(this.chatContainer, () =>
+			this.transcriptNavigation?.observeFrame(),
+		);
+		this.documentContainer = this.transcriptDocument;
+		this.transcriptNavigation = new TranscriptNavigation({
+			document: this.transcriptDocument,
+			getBranch: () => this.sessionManager.getBranch(),
+			getScrollView: () => (this.renderer.mode === "fullscreen" ? this.transcriptScrollView : undefined),
+			requestRender: () => this.ui.requestRender(),
+			onError: (error) =>
+				this.showError(`Transcript listener: ${error instanceof Error ? error.message : String(error)}`),
+		});
 		this.documentContainer.addChild(this.headerContainer);
 		this.documentContainer.addChild(this.loadedResourcesContainer);
 		this.documentContainer.addChild(this.chatContainer);
@@ -2461,6 +2475,7 @@ export class InteractiveMode {
 		}
 		this.ui.hideOverlay();
 		this.clearExtensionTerminalInputListeners();
+		this.transcriptNavigation?.reset();
 		this.setExtensionFooter(undefined);
 		this.setExtensionHeader(undefined);
 		this.clearExtensionWidgets();
@@ -2631,7 +2646,11 @@ export class InteractiveMode {
 	}
 
 	private createExtensionUIContext(): ExtensionUIContext {
+		const mode = this;
 		return {
+			get transcript() {
+				return mode.renderer.mode === "fullscreen" ? mode.transcriptNavigation : undefined;
+			},
 			select: (title, options, opts) => this.showExtensionSelector(title, options, opts),
 			confirm: (title, message, opts) => this.showExtensionConfirm(title, message, opts),
 			input: (title, placeholder, opts) => this.showExtensionInput(title, placeholder, opts),
@@ -3571,6 +3590,7 @@ export class InteractiveMode {
 						this.streamingMessage.errorMessage = errorMessage;
 					}
 					this.streamingComponent.updateContent(this.streamingMessage, false);
+					this.transcriptDocument?.bind(this.streamingComponent, this.streamingMessage);
 
 					if (this.streamingMessage.stopReason === "aborted" || this.streamingMessage.stopReason === "error") {
 						if (!errorMessage) {
@@ -3940,6 +3960,7 @@ export class InteractiveMode {
 						);
 						component.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(component);
+						this.transcriptDocument?.bind(component, message);
 						// Render user message separately if present
 						if (skillBlock.userMessage) {
 							this.chatContainer.addChild(new Spacer(1));
@@ -3950,6 +3971,7 @@ export class InteractiveMode {
 								this.getMarkdownTransformers(),
 							);
 							this.chatContainer.addChild(userComponent);
+							this.transcriptDocument?.bind(userComponent, message);
 						}
 					} else {
 						const userComponent = new UserMessageComponent(
@@ -3959,6 +3981,7 @@ export class InteractiveMode {
 							this.getMarkdownTransformers(),
 						);
 						this.chatContainer.addChild(userComponent);
+						this.transcriptDocument?.bind(userComponent, message);
 					}
 					if (options?.populateHistory) {
 						this.editor.addToHistory?.(textContent);
@@ -3976,6 +3999,7 @@ export class InteractiveMode {
 					this.getMarkdownTransformers(),
 				);
 				this.chatContainer.addChild(assistantComponent);
+				this.transcriptDocument?.bind(assistantComponent, message);
 				break;
 			}
 			case "toolResult": {
@@ -4099,6 +4123,7 @@ export class InteractiveMode {
 				return [entry];
 			}
 			const messages = sessionEntryToContextMessages(entry);
+			for (const message of messages) this.transcriptDocument?.identify(message, entry.id);
 			if ((entry.type === "compaction" || entry.type === "branch_summary") && entry.usage && messages.length > 0) {
 				return [...messages, { type: "compaction_cost", kind: entry.type, usage: entry.usage }];
 			}
@@ -7095,6 +7120,7 @@ export class InteractiveMode {
 		this.clearStatusIndicator();
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();
+		this.transcriptNavigation?.reset();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
 		if (this.unsubscribe) {

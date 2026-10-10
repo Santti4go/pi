@@ -127,6 +127,33 @@ export interface ExtensionWidgetOptions {
 	placement?: WidgetPlacement;
 }
 
+/** A persisted user/assistant entry with visible content in the current transcript. */
+export interface TranscriptEntry {
+	readonly id: string;
+	readonly role: "user" | "assistant";
+}
+
+export interface TranscriptViewport {
+	readonly entries: readonly TranscriptEntry[];
+	/** Entry at or immediately before the top of the viewport; undefined in the header. */
+	readonly activeEntryId: string | undefined;
+	readonly scrollTop: number;
+	readonly viewportHeight: number;
+	readonly contentWidth: number;
+	readonly contentHeight: number;
+	readonly followingEnd: boolean;
+}
+
+/** Fullscreen visual navigation. Does not change the session branch or model context. */
+export interface ExtensionTranscriptContext {
+	getEntries(): readonly TranscriptEntry[];
+	getActiveEntryId(): string | undefined;
+	/** Returns false if unsupported, not yet laid out, or the ID is not currently rendered. */
+	scrollToEntry(entryId: string): boolean;
+	/** Notifications run after rendering, including wheel, keyboard, resize, and content changes. */
+	onViewportChange(handler: (viewport: TranscriptViewport) => void): () => void;
+}
+
 /** Raw terminal input listener for extensions. */
 export type TerminalInputHandler = (data: string) => { consume?: boolean; data?: string } | undefined;
 
@@ -147,6 +174,9 @@ export type EditorFactory = (tui: TUI, theme: EditorTheme, keybindings: Keybindi
  * Each mode (interactive, RPC, print) provides its own implementation.
  */
 export interface ExtensionUIContext {
+	/** Available only in fullscreen TUI mode. Re-check after switching display modes. */
+	readonly transcript?: ExtensionTranscriptContext;
+
 	/** Show a selector and return the user's choice. */
 	select(title: string, options: string[], opts?: ExtensionUIDialogOptions): Promise<string | undefined>;
 
